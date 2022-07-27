@@ -30,10 +30,20 @@ ERC721URIStorageUpgradeable
 
     IERC20Upgradeable public EDCUToken;
 
+    IERC20Upgradeable public paymentToken;
+
+    enum State {
+        Activated,
+        Deactivated
+    }
+
     struct Course{
         uint256 courseId;
         uint256 price;
+        uint256 fprice;
+        address owner;
         address fractionalToken;
+        State state;
     }
 
     event CourseCreated(
@@ -45,21 +55,36 @@ ERC721URIStorageUpgradeable
     event FractionalTokenPurchased(
         uint256 tokenId,
         uint256 price,
-        address indexed beneficiary
+        address indexed user
     );
 
     event EDCUTokenPurchased(
         uint256 price,
-        address indexed beneficiary
+        address indexed user
     );
+
+    event CourseEnroll(
+        uint256 courseId,
+        address indexed user
+    );
+
+    event PaymentTokenUpdated(address indexed paymentToken);
 
     mapping(uint256 => Course) public Courses;
 
     mapping(uint256 => uint256) public tokenPrices;
 
+    mapping(address => uint256[]) public userToCourseId;
+
+    mapping(address => bool) public purchased;
+
+    modifier notAddress0(address _address) {
+        require(_address != address(0), "Address 0 is not allowed");
+        _;
+    }
 
     /// @notice Contract initializer
-    function initialize(address _edcu)
+    function initialize(address _edcu, address _paymentToken)
         public
         initializer
     {
@@ -67,6 +92,7 @@ ERC721URIStorageUpgradeable
         __AccessControl_init();
         __UUPSUpgradeable_init();
         EDCUToken = IERC20Upgradeable(_edcu);
+        paymentToken = IERC20Upgradeable(_paymentToken);
          _courseId.increment();
         _grantRole("Admin", msg.sender);
 
@@ -79,50 +105,83 @@ ERC721URIStorageUpgradeable
      */
     function _authorizeUpgrade(address newImplementation) internal override onlyRole("Admin"){}
 
-    function purchaseFToken(uint courseId, address _token)external{
+
+    function updatePaymentToken(address _token)
+        external  notAddress0(_token)
+    {
+        paymentToken = IERC20Upgradeable(_token);
+        emit PaymentTokenUpdated(_token);
+    }
+
+
+    function purchaseFToken(uint courseId)external{
         Course memory course = Courses[courseId];
-        IERC20Upgradeable(_token).safeTransferFrom(msg.sender, address(this), course.price);
+        IERC20Upgradeable(paymentToken).safeTransferFrom(msg.sender, address(this), course.price);
         //IERC20Upgradeable(fnft.fractionalToken).mint(msg.sender, 10 ether);
 
         emit FractionalTokenPurchased(courseId, course.price, msg.sender);
     }
 
-    function purchaseEDCUToken(uint _amount, address _token) external{
+
+    function purchaseEDCUToken(uint _amount) external{
         uint price = tokenPrices[_amount];
-        IERC20Upgradeable(_token).safeTransferFrom(msg.sender, address(this), _amount);
+        IERC20Upgradeable(paymentToken).safeTransferFrom(msg.sender, address(this), _amount);
         EDCUToken.safeTransfer(msg.sender, price);
 
         emit EDCUTokenPurchased(price, msg.sender);
     }
 
-    function NFTEnroll(uint courseId)external{
 
+    function TokenEnroll(uint courseId, bool isEDCU)external{
+        require(!purchased[msg.sender], "Course already purchased");
+        require(isCourseActive(courseId), "course not enrollable");
+        
+        if(!isEDCU){
+           Course memory course = Courses[courseId];
+           //IERC20Upgradeable(course.fractionalToken).burn(msg.sender, course.fprice); 
+        }
+        else{
+            EDCUToken.safeTransferFrom(msg.sender, address(this), Courses[courseId].price);
+        }
+        purchased[msg.sender] = true;
+        userToCourseId[msg.sender].push(courseId);
+
+        emit CourseEnroll(courseId, msg.sender);
     }
-
-    function TokenEnroll()external{}
 
     function getCertificate(address _user)external{}
 
     function createCourse(
-        address _to,
         uint price,
         string memory _name,
         string memory _code
     ) external{
         uint256 newTokenId = _courseId.current();
-        _safeMint(_to, newTokenId);
+        _safeMint(msg.sender, newTokenId);
 
         //Create a ERC20 Token Contract for this newly minted NFT
         FractionalToken _fnftoken = new FractionalToken(_name, _code);                                     
-        Course memory course;                                                        
-        course.courseId = newTokenId;                           
-        course.fractionalToken = address(_fnftoken);
-        course.price = price;
-        Courses[newTokenId]  = course; 
+        Courses[newTokenId]  = Course({
+            courseId: newTokenId,
+            price: price,
+            fprice: 10 ether,
+            owner: msg.sender,
+            fractionalToken: address(_fnftoken),
+            state: State.Activated
+        }); 
 
         _courseId.increment();
 
-        emit CourseCreated(newTokenId, price,  _to);
+        emit CourseCreated(newTokenId, price,  msg.sender);
+    }
+
+
+    function isCourseActive(uint256 courseId) public view returns(bool){
+        Course memory course = Courses[courseId];
+
+        if(course.state == State.Activated) return true;
+
+        return false;
     }
 
 
