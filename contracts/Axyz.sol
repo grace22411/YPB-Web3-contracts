@@ -46,6 +46,13 @@ ERC721URIStorageUpgradeable
         State state;
     }
 
+    struct certificate {
+      uint256 courseId;
+      address candidate;
+      string grade;
+      uint256 timestamp;
+  }
+
     event CourseCreated(
         uint256 courseId,
         uint256 price,
