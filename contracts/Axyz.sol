@@ -191,6 +191,14 @@ ERC721URIStorageUpgradeable
         return false;
     }
 
+    function registerUser(address _user) onlyRole("admin") external {
+        _grantRole("user", _user);
+    }
+
+    function registerInstructor(address _instructor) onlyRole("admin") external {
+        _grantRole("user", _instructor);
+    }
+
 
     function supportsInterface(bytes4 interfaceId)
         public
